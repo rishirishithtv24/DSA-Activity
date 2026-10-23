@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Circular Queue: Round-Robin Working Model</title>
+<style>
+:root{--bg:#eef2f5;--panel:#fff;--ink:#1b2733;--mute:#5b6b7a;--line:#c9d3dc;--acc:#0f7b8a;--accbg:#d9f0f3;--warn:#c2410c;--ok:#2f7d4f;--dummy:#e4e9ee;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10181f;--panel:#18232d;--ink:#e6edf3;--mute:#92a4b4;--line:#2d3d4b;--acc:#4cc3d3;--accbg:#12373e;--warn:#ff8a5c;--ok:#6fd49a;--dummy:#22313d}}
+:root[data-theme="dark"]{--bg:#10181f;--panel:#18232d;--ink:#e6edf3;--mute:#92a4b4;--line:#2d3d4b;--acc:#4cc3d3;--accbg:#12373e;--warn:#ff8a5c;--ok:#6fd49a;--dummy:#22313d}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:980px;margin:0 auto;padding:20px 16px 32px}
+h1{font:700 1.6rem/1.2 Georgia,"Times New Roman",serif;margin:0 0 4px}
+.sub{color:var(--mute);margin:0 0 18px;max-width:64ch}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+@media (max-width:760px){.grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+.stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.stat{flex:1 1 80px;border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.stat b{display:block;font-size:1.25rem}
+.stat span{color:var(--mute);font-size:.8rem}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+button{font:inherit;border:1px solid var(--acc);background:var(--accbg);color:var(--ink);border-radius:8px;padding:8px 12px;cursor:pointer;min-height:40px}
+button.alt{background:transparent;border-color:var(--line)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+label{color:var(--mute);font-size:.9rem}
+input{font:inherit;width:60px;padding:6px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)}
+svg{width:100%;height:auto;display:block}
+.slot{fill:var(--panel);stroke:var(--line);stroke-width:1.5}
+.slot.on{fill:var(--accbg);stroke:var(--acc);stroke-width:2.5}
+.slot.dummy{fill:var(--dummy);stroke-dasharray:5 4}
+.t{fill:var(--ink);font:600 15px system-ui,sans-serif;text-anchor:middle}
+.s{fill:var(--mute);font:12px system-ui,sans-serif;text-anchor:middle}
+.m{font:700 14px system-ui,sans-serif;text-anchor:middle}
+#log{height:300px;overflow:auto;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;margin:0;padding:0;list-style:none}
+#log li{padding:3px 0;border-bottom:1px solid var(--line)}
+.bad{color:var(--warn)}.good{color:var(--ok)}.wrap{color:var(--acc);font-weight:700}
+.note{color:var(--mute);font-size:.88rem;margin:8px 0 0}
+.ch{font:600 1rem system-ui,sans-serif;margin:0 0 8px}
+.code{margin:0;overflow-x:auto;font:13px/1.6 ui-monospace,Menlo,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 0}
+.ln{display:block;padding:0 12px;white-space:pre;min-height:1.6em}
+.ln.hl{background:var(--accbg);box-shadow:inset 3px 0 0 var(--acc)}
+</style>
+</head>
+<body>
+<main>
+<h1>Circular Queue: Round-Robin Scheduling</h1>
+<p class="sub">Approach 2: array of 6 slots with one slot always kept empty, so usable capacity is 5. Add processes, remove one, and watch the rear pointer wrap around to index 0.</p>
+<div class="grid">
+ <section class="card" aria-label="Queue ring">
+  <div class="stats">
+   <div class="stat"><b id="sCount">0</b><span>processes</span></div>
+   <div class="stat"><b id="sState">Empty</b><span>state</span></div>
+   <div class="stat"><b id="sClock">0</b><span>clock</span></div>
+  </div>
+  <svg viewBox="0 0 360 360" role="img" aria-label="Circular queue with 6 slots" id="ring"></svg>
+  <p class="note" id="vals"></p>
+ </section>
+ <section class="card" aria-label="Controls and log">
+  <div class="btns">
+   <button id="bEnq">Enqueue process</button>
+   <button id="bDeq">Execute and remove</button>
+  </div>
+  <div class="btns">
+   <label for="qt">Time quantum</label><input id="qt" type="number" min="1" max="9" value="2">
+   <button id="bStep">Run one slice</button>
+   <button id="bAuto">Run all</button>
+   <button class="alt" id="bReset">Reset</button>
+  </div>
+  <ul id="log" aria-live="polite"></ul>
+  <p class="note">Full when (rear + 1) mod 6 equals front. Empty when front equals rear. The slot at front is the reserved empty slot.</p>
+ </section>
+</div>
+<section class="card" style="margin-top:16px" aria-label="Code">
+ <h2 class="ch">Code running behind the ring</h2>
+ <pre id="code" class="code"></pre>
+ <p class="note">Highlighted lines are the ones that just ran. Empty means front equals rear.</p>
+</section>
+</main>
+<script>
+var SIZE=6,BURST=[5,3,4,2,6,3,4,5,2,6];
+var q,front,rear,pid,clock,timer=null;
+var $=function(i){return document.getElementById(i)};
+function reset(){stop();q=new Array(SIZE).fill(null);front=0;rear=0;pid=1;clock=0;$("log").innerHTML="";log("Queue ready. front = 0, rear = 0 (empty).");draw()}
+function isEmpty(){return front===rear}
+function isFull(){return (rear+1)%SIZE===front}
+function log(t,c){var li=document.createElement("li");li.textContent=t;if(c)li.className=c;var L=$("log");L.insertBefore(li,L.firstChild)}
+function enq(p,quiet){
+ if(isFull()){hl([4,6,7]);log("Overflow: P"+p.pid+" cannot be added (queue full).","bad");return false}
+ rear=(rear+1)%SIZE;q[rear]=p;hl([4,6,7,8,9]);
+ if(!quiet)log("Enqueue P"+p.pid+" (burst "+p.rem+") at index "+rear+(rear===0?". Rear wrapped to 0.":"."),rear===0?"wrap":"");
+ return true}
+function deq(){
+ if(isEmpty()){hl([3,12,13]);log("Underflow: queue is empty.","bad");return null}
+ front=(front+1)%SIZE;var p=q[front];q[front]=null;hl([3,12,13,14,15]);return p}
+function addProc(){var p={pid:pid,rem:BURST[(pid-1)%BURST.length]};if(enq(p))pid++;draw()}
+function execRemove(){var p=deq();if(p){log("P"+p.pid+" executed and removed. front = "+front+".");}draw()}
+function step(){
+ var Q=Math.max(1,parseInt($("qt").value)||2);
+ var p=deq();if(!p){stop();draw();return false}
+ var t=Math.min(Q,p.rem);var s=clock;clock+=t;p.rem-=t;
+ if(p.rem>0){enq(p,true);log("t="+s+": P"+p.pid+" ran "+t+", "+p.rem+" left, back to rear (index "+rear+").")}
+ else log("t="+s+": P"+p.pid+" ran "+t+" and finished at t="+clock+".","good");
+ hl([3,12,13,14,15].concat(p.rem>0?[4,6,7,8,9]:[]));draw();return true}
+function stop(){if(timer){clearInterval(timer);timer=null}$("bAuto").textContent="Run all"}
+function auto(){
+ if(timer){stop();return}
+ if(isEmpty()){log("Underflow: nothing to run. Enqueue processes first.","bad");return}
+ $("bAuto").textContent="Pause";
+ timer=setInterval(function(){if(!step()||isEmpty())stop()},800)}
+function draw(){
+ var svg=$("ring"),h="",cx=180,cy=180,r=112,n=(rear-front+SIZE)%SIZE;
+ h+='<circle cx="180" cy="180" r="112" fill="none" stroke="var(--line)" stroke-dasharray="3 5"/>';
+ h+='<text class="s" x="180" y="176">rear wraps</text><text class="s" x="180" y="194">5 → 0</text>';
+ for(var i=0;i<SIZE;i++){
+  var a=(-90+i*60)*Math.PI/180,x=cx+r*Math.cos(a),y=cy+r*Math.sin(a);
+  var on=q[i]!==null,cls="slot"+(on?" on":"")+(i===front&&!on?" dummy":"");
+  h+='<rect class="'+cls+'" x="'+(x-30)+'" y="'+(y-24)+'" width="60" height="48" rx="8"/>';
+  h+='<text class="s" x="'+x+'" y="'+(y-9)+'">index '+i+'</text>';
+  h+='<text class="t" x="'+x+'" y="'+(y+9)+'">'+(on?"P"+q[i].pid+" · "+q[i].rem:"–")+'</text>';
+  var mx=cx+160*Math.cos(a),my=cy+160*Math.sin(a)+5,tag="";
+  if(i===front&&i===rear)tag="front = rear";else if(i===front)tag="front";else if(i===rear)tag="rear";
+  if(tag)h+='<text class="m" fill="'+(i===rear?"var(--warn)":"var(--acc)")+'" x="'+mx+'" y="'+my+'">'+tag+'</text>';
+ }
+ svg.innerHTML=h;
+ $("sCount").textContent=n;$("sClock").textContent=clock;
+ $("sState").textContent=isEmpty()?"Empty":(isFull()?"Full":"Has space");
+ $("vals").textContent="front = "+front+", rear = "+rear+". Each box shows process and remaining time. The dashed box is the reserved slot at front.";
+}
+$("bEnq").onclick=addProc;$("bDeq").onclick=execRemove;
+$("bStep").onclick=function(){stop();step()};$("bAuto").onclick=auto;$("bReset").onclick=reset;
+var CODE=["#define SIZE 6              // usable capacity = 5","int front = 0, rear = 0;","","int isEmpty() { return front == rear; }","int isFull()  { return (rear + 1) % SIZE == front; }","","void enqueue(Process p) {","    if (isFull()) { printf(\"Overflow\"); return; }","    rear = (rear + 1) % SIZE;      // wraparound","    q[rear] = p;","}","","Process dequeue() {","    if (isEmpty()) { printf(\"Underflow\"); return; }","    front = (front + 1) % SIZE;    // wraparound","    return q[front];","}"];
+var hlT=null;
+CODE.forEach(function(t,i){var s=document.createElement("span");s.className="ln";s.id="ln"+i;s.textContent=t;$("code").appendChild(s)});
+function clearHl(){CODE.forEach(function(_,i){$("ln"+i).classList.remove("hl")})}
+function hl(ids){clearHl();ids.forEach(function(i){$("ln"+i).classList.add("hl")});clearTimeout(hlT);hlT=setTimeout(clearHl,1500)}
+reset();
+</script>
+</body>
+</html>
